@@ -1,1 +1,49 @@
+name: news-alert
 
+on:
+  schedule:
+    - cron: "0 22 * * *"      # 매일 1회, 22:00 UTC = 한국시간 07:00 (전날 미국장 뉴스 아침에 정리)
+                              # 다른 시간 원하면: 한국시간 = UTC + 9. 예) 한국 21시 -> "0 12 * * *"
+  workflow_dispatch: {}       # Actions 탭에서 수동 실행 버튼
+
+permissions:
+  contents: write             # state.json 커밋/푸시용
+
+concurrency:
+  group: news-alert           # 동시에 두 번 돌지 않도록
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run monitor
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python monitor.py
+
+      - name: Commit state
+        run: |
+          if [[ -n "$(git status --porcelain state.json)" ]]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add state.json
+            git commit -m "update state [skip ci]"
+            git pull --rebase --autostash || true
+            git push
+          else
+            echo "상태 변경 없음"
+          fi
